@@ -148,7 +148,7 @@ def run_vecm_diagnostics(residuals):
     for col in residuals.columns:
         resid_series = residuals[col].dropna()
         output = f"--- VECM Residual Diagnostics for: {col} ---\n"
-        min_points_for_tests = 5
+        min_points_for_tests = 5 
         if resid_series.empty or len(resid_series) < min_points_for_tests:
             diagnostics_text[col] = output + f"No valid data or too few points ({len(resid_series)}) for diagnostics."
             log_message += f"Skipped VECM diagnostics for {col} (too few points).\n"
@@ -268,7 +268,7 @@ def run_garch_analysis(residuals, garch_model_type="Standard GARCH", garch_p=1, 
         try:
             fig_resid, axs = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
             plot_index = resid_series.index if isinstance(resid_series.index, pd.DatetimeIndex) else np.arange(len(resid_series))
-            axs[0].plot(plot_index, resid_series)
+            axs[0].plot(plot_index, resid_series) 
             axs[0].set_title(f'VECM Residuals for {col} (Original Scale - Input)')
             axs[1].plot(plot_index, resid_series**2)
             axs[1].set_title(f'Squared VECM Residuals for {col}')
@@ -457,22 +457,22 @@ if uploaded_file is not None:
              st.error("Could not parse the first column as Dates. Ensure the first column contains valid dates and is set as index.")
              uploaded_file.seek(0); st.text("First few lines of the file:"); st.text(uploaded_file.read(500).decode(errors='ignore')); st.stop()
 
-        data = data_initial.sort_index()
-        numeric_cols = data.select_dtypes(include=np.number).columns
-        if len(numeric_cols) < data.shape[1]:
-            non_numeric_cols = data.select_dtypes(exclude=np.number).columns
-            st.warning(f"Ignored non-numeric columns: {list(non_numeric_cols)}. Analysis proceeds with numeric columns.")
-            data = data[numeric_cols]
-        if data.empty: st.error("No numeric data found or remaining after selection."); st.stop()
+    data = data_initial.sort_index()
+    numeric_cols = data.select_dtypes(include=np.number).columns
+    if len(numeric_cols) < data.shape[1]:
+        non_numeric_cols = data.select_dtypes(exclude=np.number).columns
+        st.warning(f"Ignored non-numeric columns: {list(non_numeric_cols)}. Analysis proceeds with numeric columns.")
+        data = data[numeric_cols]
+    if data.empty: st.error("No numeric data found or remaining after selection."); st.stop()
 
-        data_original_shape = data.shape
-        data = data.dropna()
-        if data.empty:
-            st.error(f"Data is empty after dropping rows with missing values (NaN). Original numeric shape was {data_original_shape}. Check data for NaNs.")
-            st.stop()
-        if data.shape[1] < 2:
-            st.error(f"VECM requires at least two numeric variables without missing values. Found {data.shape[1]}: {list(data.columns)}")
-            st.stop()
+    data_original_shape = data.shape
+    data = data.dropna()
+    if data.empty:
+        st.error(f"Data is empty after dropping rows with missing values (NaN). Original numeric shape was {data_original_shape}. Check data for NaNs.")
+        st.stop()
+    if data.shape[1] < 2:
+        st.error(f"VECM requires at least two numeric variables without missing values. Found {data.shape[1]}: {list(data.columns)}")
+        st.stop()
 
         # --- Frequency Inference ---
         st.subheader("Data Frequency Check")
@@ -482,17 +482,11 @@ if uploaded_file is not None:
                 inferred_freq = pd.infer_freq(data.index)
                 if inferred_freq:
                     st.success(f"Inferred frequency: **{inferred_freq}**")
-                    try:
-                        data = data.asfreq(inferred_freq)
-                        st.caption("Frequency set.")
-                    except ValueError as e_freq_set:
-                        st.warning(f"Could not set frequency '{inferred_freq}' (gaps/irregularities?). Continuing without enforcing frequency. Reason: {e_freq_set}")
-                else:
-                    st.warning("Could not infer regular frequency. Continuing.")
-            else:
-                st.warning("Duplicate dates found. Cannot infer frequency.")
-        except Exception as e_freq:
-            st.warning(f"Frequency inference error: {e_freq}. Continuing.")
+                    try: data = data.asfreq(inferred_freq); st.caption("Frequency set.")
+                    except ValueError as e_freq_set: st.warning(f"Could not set frequency '{inferred_freq}' (gaps/irregularities?). Continuing without enforcing frequency. Reason: {e_freq_set}")
+                else: st.warning("Could not infer regular frequency. Continuing.")
+            else: st.warning("Duplicate dates found. Cannot infer frequency.")
+        except Exception as e_freq: st.warning(f"Frequency inference error: {e_freq}. Continuing.")
         st.write("")
 
         st.header("Uploaded Data Preview (Numeric, Non-Missing)")
@@ -525,84 +519,92 @@ if uploaded_file is not None:
             garch_diags_text = {}; garch_summaries = {}; garch_plots = {}; garch_log = ""
             analysis_successful = True
 
-            with st.spinner ("Performing analysis... This may take a while."):
-                # --- 1. ADF Test ---
-                adf_all_stationary_diff = True
-                for name, series in data.items():
-                    level_res = run_adf_test(series, name + ' (Level)')
-                    diff_res = run_adf_test(series.diff().dropna(), name + ' (1st Difference)')
-                    adf_results_text_dict[name] = level_res + "\n" + diff_res
-                    if "Fail to Reject H0 - Series is likely Non-Stationary" in diff_res:
-                        adf_all_stationary_diff = False
-                if not adf_all_stationary_diff:
-                    st.warning("Warning: Not all series appear stationary at 1st difference (ADF p>0.05). VECM assumptions may be violated.")
+            try:
+                with st.spinner ("Performing analysis... This may take a while."):
+                    # --- 1. ADF Test ---
+                    adf_all_stationary_diff = True
+                    for name, series in data.items():
+                        level_res = run_adf_test(series, name + ' (Level)')
+                        diff_res = run_adf_test(series.diff().dropna(), name + ' (1st Difference)')
+                        adf_results_text_dict[name] = level_res + "\n" + diff_res
+                        if "Fail to Reject H0 - Series is likely Non-Stationary" in diff_res:
+                            adf_all_stationary_diff = False
+                    if not adf_all_stationary_diff:
+                        st.warning("Warning: Not all series appear stationary at 1st difference (ADF p>0.05). VECM assumptions may be violated.")
 
-                # --- 2. VECM Estimation Steps ---
-                if use_manual_lag:
-                    selected_lags = manual_lag
-                    lag_summary = f"Manual lag selection: VAR lag (k_ar) = {manual_lag}"
-                    used_criterion = "Manual"
-                else:
-                    selected_lags, lag_summary, used_criterion = find_optimal_lags(data, maxlags=max_lags_var, criterion=lag_criterion)
-                vecm_lag_order = selected_lags - 1
-                if vecm_lag_order < 0: st.warning(f"VAR lag ({selected_lags}) => VECM lag < 0. Setting VECM p=0."); vecm_lag_order = 0
-                r, johansen_summary, used_sig = run_johansen_test(data, vecm_lag_order, sig_level=johansen_sig)
-                vecm_results_model, residuals, vecm_summary, used_det = estimate_vecm(data, vecm_lag_order, r, selected_lags, deterministic_choice=vecm_deterministic)
-                returned_values = estimate_vecm(data, vecm_lag_order, r, selected_lags, deterministic_choice=vecm_deterministic)
-                if len(returned_values) == 5:
-                    vecm_results_model, residuals, vecm_summary, vecm_message, used_det_from_func = returned_values
-                    if vecm_message:
-                        vecm_summary = vecm_message
-                    used_det = used_det_from_func
-                else:
-                    vecm_results_model, residuals, vecm_summary, used_det = returned_values
-
-                # --- 3. IRF Calculation ---
-                irf_results = None; irf_summary_text = "IRF not calculated."; irf_vals = None; irf_stderr = None
-                if run_irf_analysis:
-                    if vecm_results_model is not None and r > 0:
-                        try:
-                            irf_results = vecm_results_model.irf(periods=irf_periods)
-                            irf_summary_text = f"IRF calculated for {irf_periods} periods."
-                            try: irf_vals = irf_results.irfs
-                            except Exception as e_irf_val: st.warning(f"Could not extract IRF values: {e_irf_val}"); irf_vals = None
-                            try: irf_stderr = irf_results.stderr()
-                            except AttributeError: irf_stderr = None
-                            except Exception as e_irf_se: st.warning(f"Could not extract IRF stderr: {e_irf_se}"); irf_stderr = None
-                        except Exception as e_irf: irf_summary_text = f"Error calculating IRF: {e_irf}"; st.error(irf_summary_text + f"\n{traceback.format_exc()}"); irf_results=None; irf_vals=None; irf_stderr=None
-                    elif r == 0: irf_summary_text = "IRF skipped (r=0)."
-                    else: irf_summary_text = f"IRF skipped (VECM failed: {vecm_summary})"
-                else: irf_summary_text = "IRF analysis disabled."
-
-                # --- 4. VECM Residual Diagnostics ---
-                if residuals is not None and not residuals.empty:
-                     vecm_diagnostics_results, vecm_diagnostics_log = run_vecm_diagnostics(residuals)
-                     if vecm_diagnostics_log: st.info(f"VECM Diagnostics Log: {vecm_diagnostics_log}")
-                else: vecm_diagnostics_results = {}; vecm_diagnostics_log = "Skipped VECM diagnostics (no residuals)."
-
-                # --- 5. GARCH Modeling ---
-                run_garch_modeling = False # Flag to check if GARCH should run
-                if residuals is not None and not residuals.empty:
-                    # Check for ARCH effects
-                    arch_detected = False
-                    if isinstance(vecm_diagnostics_results, dict):
-                         for var, diag_text in vecm_diagnostics_results.items():
-                             if "ARCH effects likely present" in diag_text:
-                                 arch_detected = True
-                                 st.info(f"ARCH effects detected in VECM residuals for '{var}'. Proceeding with GARCH.")
-                                 break
-                    if arch_detected:
-                        run_garch_modeling = True
+                    # --- 2. VECM Estimation Steps ---
+                    if use_manual_lag:
+                        selected_lags = manual_lag
+                        lag_summary = f"Manual lag selection: VAR lag (k_ar) = {manual_lag}"
+                        used_criterion = "Manual"
                     else:
-                        st.info("No significant ARCH effects found in VECM residuals (ARCH-LM p>0.05). GARCH might not be necessary, but proceeding as requested.")
-                        run_garch_modeling = True
-                else:
-                    garch_log = "Skipped GARCH (no VECM residuals)."
+                        selected_lags, lag_summary, used_criterion = find_optimal_lags(data, maxlags=max_lags_var, criterion=lag_criterion)
+                    vecm_lag_order = selected_lags - 1
+                    if vecm_lag_order < 0: st.warning(f"VAR lag ({selected_lags}) => VECM lag < 0. Setting VECM p=0."); vecm_lag_order = 0
+                    r, johansen_summary, used_sig = run_johansen_test(data, vecm_lag_order, sig_level=johansen_sig)
+                    vecm_results_model, residuals, vecm_summary, used_det = estimate_vecm(data, vecm_lag_order, r, selected_lags, deterministic_choice=vecm_deterministic)
+                    returned_values = estimate_vecm(data, vecm_lag_order, r, selected_lags, deterministic_choice=vecm_deterministic)
+                    if len(returned_values) == 5: 
+                        vecm_results_model, residuals, vecm_summary, vecm_message, used_det_from_func = returned_values
+                        if vecm_message: 
+                            vecm_summary = vecm_message 
+                        used_det = used_det_from_func 
+                    else: 
+                        vecm_results_model, residuals, vecm_summary, used_det = returned_values
 
-                if run_garch_modeling:
-                    garch_diags_text, garch_summaries, garch_plots, garch_log = run_garch_analysis(residuals, garch_model_type_selection, garch_p_order, garch_q_order, garch_distribution)
-                elif not garch_log:
-                    garch_log = "Skipped GARCH modeling as no significant ARCH effects were found and residuals were available."
+                    # --- 3. IRF Calculation ---
+                    irf_results = None; irf_summary_text = "IRF not calculated."; irf_vals = None; irf_stderr = None
+                    if run_irf_analysis:
+                        if vecm_results_model is not None and r > 0:
+                            try:
+                                irf_results = vecm_results_model.irf(periods=irf_periods)
+                                irf_summary_text = f"IRF calculated for {irf_periods} periods."
+                                try: irf_vals = irf_results.irfs
+                                except Exception as e_irf_val: st.warning(f"Could not extract IRF values: {e_irf_val}"); irf_vals = None
+                                try: irf_stderr = irf_results.stderr()
+                                except AttributeError: irf_stderr = None
+                                except Exception as e_irf_se: st.warning(f"Could not extract IRF stderr: {e_irf_se}"); irf_stderr = None
+                            except Exception as e_irf: irf_summary_text = f"Error calculating IRF: {e_irf}"; st.error(irf_summary_text + f"\n{traceback.format_exc()}"); irf_results=None; irf_vals=None; irf_stderr=None
+                        elif r == 0: irf_summary_text = "IRF skipped (r=0)."
+                        else: irf_summary_text = f"IRF skipped (VECM failed: {vecm_summary})"
+                    else: irf_summary_text = "IRF analysis disabled."
+
+                    # --- 4. VECM Residual Diagnostics ---
+                    if residuals is not None and not residuals.empty:
+                         vecm_diagnostics_results, vecm_diagnostics_log = run_vecm_diagnostics(residuals)
+                         if vecm_diagnostics_log: st.info(f"VECM Diagnostics Log: {vecm_diagnostics_log}")
+                    else: vecm_diagnostics_results = {}; vecm_diagnostics_log = "Skipped VECM diagnostics (no residuals)."
+
+                    # --- 5. GARCH Modeling ---
+                    run_garch_modeling = False # Flag to check if GARCH should run
+                    if residuals is not None and not residuals.empty:
+                        # Check for ARCH effects
+                        arch_detected = False
+                        if isinstance(vecm_diagnostics_results, dict):
+                             for var, diag_text in vecm_diagnostics_results.items():
+                                 if "ARCH effects likely present" in diag_text:
+                                     arch_detected = True
+                                     st.info(f"ARCH effects detected in VECM residuals for '{var}'. Proceeding with GARCH.")
+                                     break
+                        if arch_detected:
+                            run_garch_modeling = True
+                        else:
+                            st.info("No significant ARCH effects found in VECM residuals (ARCH-LM p>0.05). GARCH might not be necessary, but proceeding as requested.")
+                            run_garch_modeling = True
+                    else:
+                        garch_log = "Skipped GARCH (no VECM residuals)."
+
+                    if run_garch_modeling:
+                        garch_diags_text, garch_summaries, garch_plots, garch_log = run_garch_analysis(residuals, garch_model_type_selection, garch_p_order, garch_q_order, garch_distribution)
+                    elif not garch_log:
+                        garch_log = "Skipped GARCH modeling as no significant ARCH effects were found and residuals were available."
+
+
+            # --- Error Handling  ---
+            except Exception as analysis_error:
+                 st.error(f"Error during main analysis workflow: {analysis_error}")
+                 st.exception(analysis_error)
+                 analysis_successful = False
 
             # --- Display Results ---
             if analysis_successful:
@@ -631,7 +633,7 @@ if uploaded_file is not None:
                 # ========================================================================
                 with tabs[1]:
                     st.header("2. VECM Estimation")
-                    st.subheader(f"2.1 VAR Lag Order Selection");
+                    st.subheader(f"2.1 VAR Lag Order Selection"); 
                     if used_criterion.upper() == "MANUAL":
                         st.markdown(f"**Selection Method:** `Manual`, **Selected Lag:** `{selected_lags}`");
                     else:
@@ -715,10 +717,7 @@ if uploaded_file is not None:
                     if run_irf_analysis:
                         st.markdown(f"Displaying IRFs for **{irf_periods}** periods ahead."); st.markdown("_Note: Non-orthogonalized IRFs. 95% CI shown (if available)._")
                         if irf_results is not None:
-                            try:
-                                fig_irf = irf_results.plot(orth=False, signif=0.05)
-                                st.pyplot(fig_irf)
-                                plt.close(fig_irf)
+                            try: fig_irf = irf_results.plot(orth=False, signif=0.05); st.pyplot(fig_irf); plt.close(fig_irf)
                             except Exception as e_plot_irf: st.error(f"Error plotting IRF: {e_plot_irf}\n{traceback.format_exc()}")
                         else: st.warning(f"Could not display IRF plots. Reason: {irf_summary_text}")
                     else: st.info("IRF analysis disabled.")
@@ -735,9 +734,7 @@ if uploaded_file is not None:
                             st.subheader(f"GARCH Analysis for '{col_name}' Residuals")
                             plot_key_in = f'{col_name}_residuals_input'; plot_key_std = f'{col_name}_std_residuals'
                             # Plot Input
-                            if plot_key_in in garch_plots and garch_plots[plot_key_in]:
-                                st.pyplot(garch_plots[plot_key_in])
-                                plt.close(garch_plots[plot_key_in])
+                            if plot_key_in in garch_plots and garch_plots[plot_key_in]: st.pyplot(garch_plots[plot_key_in]); plt.close(garch_plots[plot_key_in])
                             else: st.caption(f"_Input plot for {col_name} not available._")
                             # Summary
                             if col_name in garch_summaries:
@@ -748,9 +745,7 @@ if uploaded_file is not None:
                                  st.text_area(f"GARCH Diagnostics ({col_name})", garch_diags_text[col_name], height=400, key=f"garch_diag_text_{col_name}")
                             else: st.caption(f"_Diagnostics text for {col_name} not available._")
                             # Diagnostics Plot
-                            if plot_key_std in garch_plots and garch_plots[plot_key_std]:
-                                st.pyplot(garch_plots[plot_key_std])
-                                plt.close(garch_plots[plot_key_std])
+                            if plot_key_std in garch_plots and garch_plots[plot_key_std]: st.pyplot(garch_plots[plot_key_std]); plt.close(garch_plots[plot_key_std])
                             else: st.caption(f"_Std. residuals plot for {col_name} not available._")
                             st.divider()
                     elif not garch_was_run: st.info("GARCH modeling was skipped or not performed.")
@@ -911,156 +906,157 @@ if uploaded_file is not None:
 
 
                     zip_buffer = io.BytesIO()
-                    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-                        file_counter = 0
+                    try:
+                        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                            file_counter = 0
 
-                        # 1. Parameter
-                        params_text = f"Analysis Parameters:\n"
-                        params_text += f"Data File: {uploaded_file.name if uploaded_file else 'N/A'}\n"
-                        params_text += f"Processed Data Shape: {data.shape if data is not None else 'N/A'}\n"
-                        if used_criterion.upper() == "MANUAL":
-                            params_text += f"Lag Selection: Manual\nSelected VAR Lag (k_ar): {selected_lags}\n"
-                        else:
-                            params_text += f"Lag Criterion: {used_criterion.upper()}\nMax Lags Tested: {max_lags_var}\n"
-                        params_text += f"Johansen Sig Level: {used_sig * 100}%\nDetermined Rank (r): {r}\n"
-                        params_text += f"VECM Deterministic Term: {used_det}\nVECM Lag (p): {vecm_lag_order if vecm_lag_order is not None else 'N/A'}\n"
-                        params_text += f"Run IRF Analysis: {'Yes' if run_irf_analysis else 'No'}\n"
-                        if run_irf_analysis: params_text += f"IRF Periods: {irf_periods}\n"
-                        params_text += f"GARCH Model Type: {garch_model_type_selection}\nGARCH p: {garch_p_order}, q: {garch_q_order}\nGARCH Distribution: {garch_distribution}\n"
-                        zip_file.writestr(f"{file_counter:02d}_Parameters_Used.txt", params_text); file_counter += 1
-
-                        # 2. ADF Test Results
-                        adf_full_text = "--- ADF Test Results ---\n(Significance Level: 5%)\n\n"
-                        if adf_results_text_dict:
-                            for var_name, results in adf_results_text_dict.items(): adf_full_text += f"--- Variable: {var_name} ---\n{results}\n--------------------\n"
-                        else: adf_full_text += "ADF results dictionary is empty.\n"
-                        zip_file.writestr(f"{file_counter:02d}_ADF_Tests.txt", adf_full_text); file_counter += 1
-
-                        # 3. VAR Lag Selection Summary
-                        lag_selection_text = f"--- VAR Lag Order Selection ---\nCriterion: {used_criterion.upper()}, Max Lags: {max_lags_var}\nSelected VAR Lag (k_ar): {selected_lags if selected_lags is not None else 'N/A'}, Implied VECM Lag (p): {vecm_lag_order if vecm_lag_order is not None else 'N/A'}\n\nSummary Output:\n{lag_summary if lag_summary else 'N/A'}"
-                        zip_file.writestr(f"{file_counter:02d}_VAR_Lag_Selection.txt", lag_selection_text); file_counter += 1
-
-                        # 4. Johansen Test Output
-                        zip_file.writestr(f"{file_counter:02d}_Johansen_Cointegration_Test.txt", johansen_summary if johansen_summary else "N/A"); file_counter += 1
-
-                        # --- VECM Results Files (Summary and Coefficients) ---
-                        if vecm_results_model is not None and r > 0:
-                            # 5. VECM Summary
-                            zip_file.writestr(f"{file_counter:02d}_VECM_Estimation_Summary.txt", vecm_summary if vecm_summary else "N/A"); file_counter += 1
-
-                            # 6. Alpha Coefficients
-                            try:
-                                alpha_df_zip = pd.DataFrame(vecm_results_model.alpha, index=data.columns, columns=[f'alpha_ect{i+1}' for i in range(r)])
-                                alpha_csv_bytes = df_to_csv_bytes(alpha_df_zip, "vecm_alpha.csv")
-                                if alpha_csv_bytes: zip_file.writestr(f"{file_counter:02d}_VECM_Alpha_Coeffs.csv", alpha_csv_bytes)
-                                else: zip_file.writestr(f"{file_counter:02d}_VECM_Alpha_Coeffs_Error.txt", "Error converting Alpha to CSV.")
-                            except Exception as e_alpha_zip: zip_file.writestr(f"{file_counter:02d}_VECM_Alpha_Coeffs_Error.txt", f"Error: {e_alpha_zip}")
-                            file_counter += 1
-
-                            # 7. Beta Coefficients
-                            try:
-                                beta_df_zip = pd.DataFrame(vecm_results_model.beta, index=data.columns, columns=[f'beta_ect{i+1}' for i in range(r)])
-                                beta_csv_bytes = df_to_csv_bytes(beta_df_zip, "vecm_beta.csv")
-                                if beta_csv_bytes: zip_file.writestr(f"{file_counter:02d}_VECM_Beta_Coeffs.csv", beta_csv_bytes)
-                                else: zip_file.writestr(f"{file_counter:02d}_VECM_Beta_Coeffs_Error.txt", "Error converting Beta to CSV.")
-                            except Exception as e_beta_zip: zip_file.writestr(f"{file_counter:02d}_VECM_Beta_Coeffs_Error.txt", f"Error: {e_beta_zip}")
-                            file_counter += 1
-
-                            # 8. Gamma Coefficients
-                            try:
-                                gamma_cols_zip = []
-                                for lag_g in range(1, vecm_lag_order + 1):
-                                    for var_g in data.columns: gamma_cols_zip.append(f'Gamma.L{lag_g}.{var_g}')
-                                expected_gamma_shape_zip = (data.shape[1], data.shape[1] * vecm_lag_order)
-                                if hasattr(vecm_results_model, 'gamma') and vecm_results_model.gamma.shape == expected_gamma_shape_zip:
-                                    gamma_df_zip = pd.DataFrame(vecm_results_model.gamma, index=data.columns, columns=gamma_cols_zip[:expected_gamma_shape_zip[1]])
-                                    gamma_csv_bytes = df_to_csv_bytes(gamma_df_zip, "vecm_gamma.csv")
-                                    if gamma_csv_bytes: zip_file.writestr(f"{file_counter:02d}_VECM_Gamma_Coeffs.csv", gamma_csv_bytes)
-                                    else: zip_file.writestr(f"{file_counter:02d}_VECM_Gamma_Coeffs_Error.txt", "Error converting Gamma to CSV.")
-                                elif not hasattr(vecm_results_model, 'gamma'): zip_file.writestr(f"{file_counter:02d}_VECM_Gamma_Coeffs_Error.txt", "Gamma attribute not found.")
-                                else: zip_file.writestr(f"{file_counter:02d}_VECM_Gamma_Coeffs_Error.txt", f"Gamma shape mismatch ({vecm_results_model.gamma.shape} vs {expected_gamma_shape_zip}).")
-                            except Exception as e_gamma_zip: zip_file.writestr(f"{file_counter:02d}_VECM_Gamma_Coeffs_Error.txt", f"Error: {e_gamma_zip}")
-                            file_counter += 1
-
-                            # 9. Deterministic Coefficients
-                            if hasattr(vecm_results_model, 'det_coefs') and vecm_results_model.det_coefs is not None:
-                                try:
-                                    det_cols = [f'det_term_{i+1}' for i in range(vecm_results_model.det_coefs.shape[1])]
-                                    if used_det == 'co': det_cols = ['const_coint']
-                                    elif used_det == 'ci': det_cols = ['const_level']
-                                    elif used_det == 'const': det_cols = ['const_level'] + [f'const_ect{i+1}' for i in range(r)]
-
-
-                                    det_df_zip = pd.DataFrame(vecm_results_model.det_coefs, index=data.columns, columns=det_cols[:vecm_results_model.det_coefs.shape[1]])
-                                    det_csv_bytes = df_to_csv_bytes(det_df_zip, "vecm_det_coeffs.csv")
-                                    if det_csv_bytes: zip_file.writestr(f"{file_counter:02d}_VECM_Deterministic_Coeffs.csv", det_csv_bytes)
-                                    else: zip_file.writestr(f"{file_counter:02d}_VECM_Deterministic_Coeffs_Error.txt", "Error converting Det Coeffs to CSV.")
-                                except Exception as e_det_zip: zip_file.writestr(f"{file_counter:02d}_VECM_Deterministic_Coeffs_Error.txt", f"Error: {e_det_zip}")
+                            # 1. Parameter
+                            params_text = f"Analysis Parameters:\n"
+                            params_text += f"Data File: {uploaded_file.name if uploaded_file else 'N/A'}\n"
+                            params_text += f"Processed Data Shape: {data.shape if data is not None else 'N/A'}\n"
+                            if used_criterion.upper() == "MANUAL":
+                                params_text += f"Lag Selection: Manual\nSelected VAR Lag (k_ar): {selected_lags}\n"
                             else:
-                                 zip_file.writestr(f"{file_counter:02d}_VECM_Deterministic_Coeffs_NA.txt", "Deterministic coefficients not applicable or not found.")
+                                params_text += f"Lag Criterion: {used_criterion.upper()}\nMax Lags Tested: {max_lags_var}\n"
+                            params_text += f"Johansen Sig Level: {used_sig * 100}%\nDetermined Rank (r): {r}\n"
+                            params_text += f"VECM Deterministic Term: {used_det}\nVECM Lag (p): {vecm_lag_order if vecm_lag_order is not None else 'N/A'}\n"
+                            params_text += f"Run IRF Analysis: {'Yes' if run_irf_analysis else 'No'}\n"
+                            if run_irf_analysis: params_text += f"IRF Periods: {irf_periods}\n"
+                            params_text += f"GARCH Model Type: {garch_model_type_selection}\nGARCH p: {garch_p_order}, q: {garch_q_order}\nGARCH Distribution: {garch_distribution}\n"
+                            zip_file.writestr(f"{file_counter:02d}_Parameters_Used.txt", params_text); file_counter += 1
+
+                            # 2. ADF Test Results
+                            adf_full_text = "--- ADF Test Results ---\n(Significance Level: 5%)\n\n"
+                            if adf_results_text_dict:
+                                for var_name, results in adf_results_text_dict.items(): adf_full_text += f"--- Variable: {var_name} ---\n{results}\n--------------------\n"
+                            else: adf_full_text += "ADF results dictionary is empty.\n"
+                            zip_file.writestr(f"{file_counter:02d}_ADF_Tests.txt", adf_full_text); file_counter += 1
+
+                            # 3. VAR Lag Selection Summary
+                            lag_selection_text = f"--- VAR Lag Order Selection ---\nCriterion: {used_criterion.upper()}, Max Lags: {max_lags_var}\nSelected VAR Lag (k_ar): {selected_lags if selected_lags is not None else 'N/A'}, Implied VECM Lag (p): {vecm_lag_order if vecm_lag_order is not None else 'N/A'}\n\nSummary Output:\n{lag_summary if lag_summary else 'N/A'}"
+                            zip_file.writestr(f"{file_counter:02d}_VAR_Lag_Selection.txt", lag_selection_text); file_counter += 1
+
+                            # 4. Johansen Test Output
+                            zip_file.writestr(f"{file_counter:02d}_Johansen_Cointegration_Test.txt", johansen_summary if johansen_summary else "N/A"); file_counter += 1
+
+                            # --- VECM Results Files (Summary and Coefficients) ---
+                            if vecm_results_model is not None and r > 0:
+                                # 5. VECM Summary
+                                zip_file.writestr(f"{file_counter:02d}_VECM_Estimation_Summary.txt", vecm_summary if vecm_summary else "N/A"); file_counter += 1
+
+                                # 6. Alpha Coefficients
+                                try:
+                                    alpha_df_zip = pd.DataFrame(vecm_results_model.alpha, index=data.columns, columns=[f'alpha_ect{i+1}' for i in range(r)])
+                                    alpha_csv_bytes = df_to_csv_bytes(alpha_df_zip, "vecm_alpha.csv")
+                                    if alpha_csv_bytes: zip_file.writestr(f"{file_counter:02d}_VECM_Alpha_Coeffs.csv", alpha_csv_bytes)
+                                    else: zip_file.writestr(f"{file_counter:02d}_VECM_Alpha_Coeffs_Error.txt", "Error converting Alpha to CSV.")
+                                except Exception as e_alpha_zip: zip_file.writestr(f"{file_counter:02d}_VECM_Alpha_Coeffs_Error.txt", f"Error: {e_alpha_zip}")
+                                file_counter += 1
+
+                                # 7. Beta Coefficients
+                                try:
+                                    beta_df_zip = pd.DataFrame(vecm_results_model.beta, index=data.columns, columns=[f'beta_ect{i+1}' for i in range(r)])
+                                    beta_csv_bytes = df_to_csv_bytes(beta_df_zip, "vecm_beta.csv")
+                                    if beta_csv_bytes: zip_file.writestr(f"{file_counter:02d}_VECM_Beta_Coeffs.csv", beta_csv_bytes)
+                                    else: zip_file.writestr(f"{file_counter:02d}_VECM_Beta_Coeffs_Error.txt", "Error converting Beta to CSV.")
+                                except Exception as e_beta_zip: zip_file.writestr(f"{file_counter:02d}_VECM_Beta_Coeffs_Error.txt", f"Error: {e_beta_zip}")
+                                file_counter += 1
+
+                                # 8. Gamma Coefficients
+                                try:
+                                    gamma_cols_zip = []
+                                    for lag_g in range(1, vecm_lag_order + 1):
+                                        for var_g in data.columns: gamma_cols_zip.append(f'Gamma.L{lag_g}.{var_g}')
+                                    expected_gamma_shape_zip = (data.shape[1], data.shape[1] * vecm_lag_order)
+                                    if hasattr(vecm_results_model, 'gamma') and vecm_results_model.gamma.shape == expected_gamma_shape_zip:
+                                        gamma_df_zip = pd.DataFrame(vecm_results_model.gamma, index=data.columns, columns=gamma_cols_zip[:expected_gamma_shape_zip[1]])
+                                        gamma_csv_bytes = df_to_csv_bytes(gamma_df_zip, "vecm_gamma.csv")
+                                        if gamma_csv_bytes: zip_file.writestr(f"{file_counter:02d}_VECM_Gamma_Coeffs.csv", gamma_csv_bytes)
+                                        else: zip_file.writestr(f"{file_counter:02d}_VECM_Gamma_Coeffs_Error.txt", "Error converting Gamma to CSV.")
+                                    elif not hasattr(vecm_results_model, 'gamma'): zip_file.writestr(f"{file_counter:02d}_VECM_Gamma_Coeffs_Error.txt", "Gamma attribute not found.")
+                                    else: zip_file.writestr(f"{file_counter:02d}_VECM_Gamma_Coeffs_Error.txt", f"Gamma shape mismatch ({vecm_results_model.gamma.shape} vs {expected_gamma_shape_zip}).")
+                                except Exception as e_gamma_zip: zip_file.writestr(f"{file_counter:02d}_VECM_Gamma_Coeffs_Error.txt", f"Error: {e_gamma_zip}")
+                                file_counter += 1
+
+                                # 9. Deterministic Coefficients 
+                                if hasattr(vecm_results_model, 'det_coefs') and vecm_results_model.det_coefs is not None:
+                                    try:
+                                        det_cols = [f'det_term_{i+1}' for i in range(vecm_results_model.det_coefs.shape[1])]
+                                        if used_det == 'co': det_cols = ['const_coint']
+                                        elif used_det == 'ci': det_cols = ['const_level']
+                                        elif used_det == 'const': det_cols = ['const_level'] + [f'const_ect{i+1}' for i in range(r)]
+
+
+                                        det_df_zip = pd.DataFrame(vecm_results_model.det_coefs, index=data.columns, columns=det_cols[:vecm_results_model.det_coefs.shape[1]])
+                                        det_csv_bytes = df_to_csv_bytes(det_df_zip, "vecm_det_coeffs.csv")
+                                        if det_csv_bytes: zip_file.writestr(f"{file_counter:02d}_VECM_Deterministic_Coeffs.csv", det_csv_bytes)
+                                        else: zip_file.writestr(f"{file_counter:02d}_VECM_Deterministic_Coeffs_Error.txt", "Error converting Det Coeffs to CSV.")
+                                    except Exception as e_det_zip: zip_file.writestr(f"{file_counter:02d}_VECM_Deterministic_Coeffs_Error.txt", f"Error: {e_det_zip}")
+                                else:
+                                     zip_file.writestr(f"{file_counter:02d}_VECM_Deterministic_Coeffs_NA.txt", "Deterministic coefficients not applicable or not found.")
+                                file_counter += 1
+
+                            else:
+                                zip_file.writestr(f"{file_counter:02d}_VECM_Estimation_Skipped.txt", f"VECM skipped or failed (r={r}). No summary or coeffs generated."); file_counter += 1
+                                file_counter += 4 
+
+
+                            # 10. IRF Numeric Values
+                            if run_irf_analysis and irf_vals is not None:
+                                irf_num_text = f"--- IRF Values (Non-Orthogonalized) ---\nPeriods: {irf_periods}\nVariables: {list(data.columns)}\n\n(Format: Period, Impulse -> Response = Value [StdErr])\n\n"
+                                neqs = irf_vals.shape[1]; var_names = list(data.columns)
+                                for period in range(irf_vals.shape[0]):
+                                    irf_num_text += f"--- Period {period} ---\n"
+                                    for i in range(neqs):
+                                        for j in range(neqs):
+                                            imp_v, res_v = var_names[i], var_names[j]; val = irf_vals[period, j, i]; se_str = ""
+                                            if irf_stderr is not None and irf_stderr.ndim == 3 and irf_stderr.shape == irf_vals.shape:
+                                                try: se_val = irf_stderr[period, j, i]; se_str = f" [{se_val:.4f}]"
+                                                except IndexError: se_str = " [SE Idx Err]"
+                                                except Exception: se_str = " [SE Err]"
+                                            elif irf_stderr is not None: se_str = " [SE Shape Err]"
+                                            irf_num_text += f"{imp_v} -> {res_v} = {val:.4f}{se_str}\n"
+                                        irf_num_text += "\n"
+                                    irf_num_text += "---\n"
+                                zip_file.writestr(f"{file_counter:02d}_IRF_Numeric_Values.txt", irf_num_text)
+                            elif run_irf_analysis: zip_file.writestr(f"{file_counter:02d}_IRF_Numeric_Values_Skipped.txt", f"Numeric IRF N/A. Reason: {irf_summary_text}")
+                            else: zip_file.writestr(f"{file_counter:02d}_IRF_Analysis_Disabled.txt", "IRF analysis disabled.")
                             file_counter += 1
 
-                        else:
-                            zip_file.writestr(f"{file_counter:02d}_VECM_Estimation_Skipped.txt", f"VECM skipped or failed (r={r}). No summary or coeffs generated."); file_counter += 1
-                            file_counter += 4
+                            # 11. VECM Residual Diagnostics
+                            vecm_diag_full_text = "--- VECM Residual Diagnostics ---\n\n"
+                            if vecm_diagnostics_log: vecm_diag_full_text += f"Log:\n{vecm_diagnostics_log}\n\n---\n\n"
+                            if isinstance(vecm_diagnostics_results, dict) and vecm_diagnostics_results:
+                                for var_name, results_text in vecm_diagnostics_results.items(): vecm_diag_full_text += f"--- Diag: {var_name} ---\n{results_text}\n--------------------\n"
+                            elif not vecm_diagnostics_log: vecm_diag_full_text += "No diagnostics generated.\n"
+                            zip_file.writestr(f"{file_counter:02d}_VECM_Residual_Diagnostics.txt", vecm_diag_full_text); file_counter += 1
 
+                            # 12. GARCH Log
+                            zip_file.writestr(f"{file_counter:02d}_GARCH_Log.txt", garch_log if garch_log else "N/A"); file_counter += 1
 
-                        # 10. IRF Numeric Values
-                        if run_irf_analysis and irf_vals is not None:
-                            irf_num_text = f"--- IRF Values (Non-Orthogonalized) ---\nPeriods: {irf_periods}\nVariables: {list(data.columns)}\n\n(Format: Period, Impulse -> Response = Value [StdErr])\n\n"
-                            neqs = irf_vals.shape[1]; var_names = list(data.columns)
-                            for period in range(irf_vals.shape[0]):
-                                irf_num_text += f"--- Period {period} ---\n"
-                                for i in range(neqs):
-                                    for j in range(neqs):
-                                        imp_v, res_v = var_names[i], var_names[j]; val = irf_vals[period, j, i]; se_str = ""
-                                        if irf_stderr is not None and irf_stderr.ndim == 3 and irf_stderr.shape == irf_vals.shape:
-                                            try: se_val = irf_stderr[period, j, i]; se_str = f" [{se_val:.4f}]"
-                                            except IndexError: se_str = " [SE Idx Err]"
-                                            except Exception: se_str = " [SE Err]"
-                                        elif irf_stderr is not None: se_str = " [SE Shape Err]"
-                                        irf_num_text += f"{imp_v} -> {res_v} = {val:.4f}{se_str}\n"
-                                    irf_num_text += "\n"
-                                irf_num_text += "---\n"
-                            zip_file.writestr(f"{file_counter:02d}_IRF_Numeric_Values.txt", irf_num_text)
-                        elif run_irf_analysis: zip_file.writestr(f"{file_counter:02d}_IRF_Numeric_Values_Skipped.txt", f"Numeric IRF N/A. Reason: {irf_summary_text}")
-                        else: zip_file.writestr(f"{file_counter:02d}_IRF_Analysis_Disabled.txt", "IRF analysis disabled.")
-                        file_counter += 1
+                            # 13. GARCH Estimation Summaries
+                            garch_est_full_text = f"--- GARCH Summaries ({garch_model_type_selection}) ---\nDist: {garch_distribution}\n\n"
+                            if garch_summaries:
+                                for n, s in garch_summaries.items(): garch_est_full_text += f"--- Summary: {n} ---\n{s}\n--------------------\n"
+                            else: garch_est_full_text += "N/A\n"
+                            zip_file.writestr(f"{file_counter:02d}_GARCH_Estimation_Summaries.txt", garch_est_full_text); file_counter += 1
 
-                        # 11. VECM Residual Diagnostics
-                        vecm_diag_full_text = "--- VECM Residual Diagnostics ---\n\n"
-                        if vecm_diagnostics_log: vecm_diag_full_text += f"Log:\n{vecm_diagnostics_log}\n\n---\n\n"
-                        if isinstance(vecm_diagnostics_results, dict) and vecm_diagnostics_results:
-                            for var_name, results_text in vecm_diagnostics_results.items(): vecm_diag_full_text += f"--- Diag: {var_name} ---\n{results_text}\n--------------------\n"
-                        elif not vecm_diagnostics_log: vecm_diag_full_text += "No diagnostics generated.\n"
-                        zip_file.writestr(f"{file_counter:02d}_VECM_Residual_Diagnostics.txt", vecm_diag_full_text); file_counter += 1
+                            # 14. GARCH Diagnostics
+                            garch_diag_full_text = f"--- GARCH Diagnostics ({garch_model_type_selection}) ---\nDist: {garch_distribution}\n\n"
+                            if garch_diags_text:
+                                if isinstance(garch_diags_text, dict):
+                                    for n, r_garch_diag in garch_diags_text.items(): garch_diag_full_text += f"--- Diag: {n} ---\n{r_garch_diag if isinstance(r_garch_diag, str) else 'Format Error'}\n--------------------\n"
+                                else: garch_diag_full_text += "Format Error (Expected Dict).\n"
+                            else: garch_diag_full_text += "N/A\n"
+                            zip_file.writestr(f"{file_counter:02d}_GARCH_Diagnostics.txt", garch_diag_full_text); file_counter += 1
 
-                        # 12. GARCH Log
-                        zip_file.writestr(f"{file_counter:02d}_GARCH_Log.txt", garch_log if garch_log else "N/A"); file_counter += 1
+                            # --- END OF ZIP BLOCK ---
 
-                        # 13. GARCH Estimation Summaries
-                        garch_est_full_text = f"--- GARCH Summaries ({garch_model_type_selection}) ---\nDist: {garch_distribution}\n\n"
-                        if garch_summaries:
-                            for n, s in garch_summaries.items(): garch_est_full_text += f"--- Summary: {n} ---\n{s}\n--------------------\n"
-                        else: garch_est_full_text += "N/A\n"
-                        zip_file.writestr(f"{file_counter:02d}_GARCH_Estimation_Summaries.txt", garch_est_full_text); file_counter += 1
-
-                        # 14. GARCH Diagnostics
-                        garch_diag_full_text = f"--- GARCH Diagnostics ({garch_model_type_selection}) ---\nDist: {garch_distribution}\n\n"
-                        if garch_diags_text:
-                            if isinstance(garch_diags_text, dict):
-                                for n, r_garch_diag in garch_diags_text.items(): garch_diag_full_text += f"--- Diag: {n} ---\n{r_garch_diag if isinstance(r_garch_diag, str) else 'Format Error'}\n--------------------\n"
-                            else: garch_diag_full_text += "Format Error (Expected Dict).\n"
-                        else: garch_diag_full_text += "N/A\n"
-                        zip_file.writestr(f"{file_counter:02d}_GARCH_Diagnostics.txt", garch_diag_full_text); file_counter += 1
-
-                        # --- END OF ZIP BLOCK ---
-
-                     zip_buffer.seek(0)
+                        zip_buffer.seek(0)
                         st.download_button(label="📥 Download All Results (.zip)", data=zip_buffer, file_name="analysis_results.zip", mime="application/zip", key="download_all_results")
 
-                except Exception as zip_error:
-                     st.error(f"An error occurred during ZIP file creation: {zip_error}"); st.exception(zip_error)
+                    except Exception as zip_error:
+                         st.error(f"An error occurred during ZIP file creation: {zip_error}"); st.exception(zip_error)
 
 
 
