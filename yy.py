@@ -457,7 +457,7 @@ if uploaded_file is not None:
              st.error("Could not parse the first column as Dates. Ensure the first column contains valid dates and is set as index.")
              uploaded_file.seek(0); st.text("First few lines of the file:"); st.text(uploaded_file.read(500).decode(errors='ignore')); st.stop()
 
-    data = data_initial.sort_index()
+        data = data_initial.sort_index()
         numeric_cols = data.select_dtypes(include=np.number).columns
         if len(numeric_cols) < data.shape[1]:
             non_numeric_cols = data.select_dtypes(exclude=np.number).columns
