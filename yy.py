@@ -1059,8 +1059,8 @@ if uploaded_file is not None:
                      zip_buffer.seek(0)
                         st.download_button(label="📥 Download All Results (.zip)", data=zip_buffer, file_name="analysis_results.zip", mime="application/zip", key="download_all_results")
 
-                    except Exception as zip_error:
-                         st.error(f"An error occurred during ZIP file creation: {zip_error}"); st.exception(zip_error)
+                except Exception as zip_error:
+                     st.error(f"An error occurred during ZIP file creation: {zip_error}"); st.exception(zip_error)
 
 
 
