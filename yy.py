@@ -421,10 +421,9 @@ garch_distribution = st.sidebar.selectbox("GARCH Distribution", ['normal', 't', 
 # ==============================================================
 
 if uploaded_file is not None:
-    data = None
-    data_initial = None
-
+    # This is the main try-except block for the whole application workflow
     try:
+        data_initial = None
         # --- Data Loading and Preprocessing ---
         st.caption("Attempting to load and parse CSV...")
         # We need to reset the file pointer before each read attempt
@@ -445,91 +444,87 @@ if uploaded_file is not None:
                 data_initial = pd.read_csv(uploaded_file, index_col=0, parse_dates=True, dayfirst=True)
                 st.caption("Success with day-first date format.")
             except Exception as e_inner:
+                # If both methods fail, show a specific error and stop.
                 st.error(f"Failed to read CSV with both standard and day-first date formats. Please check your date column. Error: {e_inner}")
                 st.stop()
+        
+        # --- Continue with processing after successful data load ---
+        if data_initial is None:
+            st.error("Could not load data. Please check the file format and content.")
+            st.stop()
 
-    except Exception as e_outer:
-         st.error(f"An unexpected error occurred while reading the CSV: {e_outer}")
-         st.stop()
+        if not isinstance(data_initial.index, pd.DatetimeIndex):
+             st.error("Could not parse the first column as Dates. Ensure the first column contains valid dates and is set as index.")
+             uploaded_file.seek(0); st.text("First few lines of the file:"); st.text(uploaded_file.read(500).decode(errors='ignore')); st.stop()
 
+        data = data_initial.sort_index()
+        numeric_cols = data.select_dtypes(include=np.number).columns
+        if len(numeric_cols) < data.shape[1]:
+            non_numeric_cols = data.select_dtypes(exclude=np.number).columns
+            st.warning(f"Ignored non-numeric columns: {list(non_numeric_cols)}. Analysis proceeds with numeric columns.")
+            data = data[numeric_cols]
+        if data.empty: st.error("No numeric data found or remaining after selection."); st.stop()
 
-    if data_initial is None:
-        st.error("Could not load data. Please check the file format and content.")
-        st.stop()
+        data_original_shape = data.shape
+        data = data.dropna()
+        if data.empty:
+            st.error(f"Data is empty after dropping rows with missing values (NaN). Original numeric shape was {data_original_shape}. Check data for NaNs.")
+            st.stop()
+        if data.shape[1] < 2:
+            st.error(f"VECM requires at least two numeric variables without missing values. Found {data.shape[1]}: {list(data.columns)}")
+            st.stop()
 
-    if not isinstance(data_initial.index, pd.DatetimeIndex):
-         st.error("Could not parse the first column as Dates. Ensure the first column contains dates and is set as index.")
-         uploaded_file.seek(0); st.text("First few lines of the file:"); st.text(uploaded_file.read(500).decode(errors='ignore')); st.stop()
-
-    data = data_initial.sort_index()
-    numeric_cols = data.select_dtypes(include=np.number).columns
-    if len(numeric_cols) < data.shape[1]:
-        non_numeric_cols = data.select_dtypes(exclude=np.number).columns
-        st.warning(f"Ignored non-numeric columns: {list(non_numeric_cols)}. Analysis proceeds with numeric columns.")
-        data = data[numeric_cols]
-    if data.empty: st.error("No numeric data found or remaining after selection."); st.stop()
-
-    data_original_shape = data.shape
-    data = data.dropna()
-    if data.empty:
-        st.error(f"Data is empty after dropping rows with missing values (NaN). Original numeric shape was {data_original_shape}. Check data for NaNs.")
-        st.stop()
-    if data.shape[1] < 2:
-        st.error(f"VECM requires at least two numeric variables without missing values. Found {data.shape[1]}: {list(data.columns)}")
-        st.stop()
-
-    # --- Frequency Inference ---
-    st.subheader("Data Frequency Check")
-    inferred_freq = None
-    try:
-        if data.index.is_unique:
-            inferred_freq = pd.infer_freq(data.index)
-            if inferred_freq:
-                st.success(f"Inferred frequency: **{inferred_freq}**")
-                try:
-                    data = data.asfreq(inferred_freq)
-                    st.caption("Frequency set.")
-                except ValueError as e_freq_set:
-                    st.warning(f"Could not set frequency '{inferred_freq}' (gaps/irregularities?). Continuing without enforcing frequency. Reason: {e_freq_set}")
-            else:
-                st.warning("Could not infer regular frequency. Continuing.")
-        else:
-            st.warning("Duplicate dates found. Cannot infer frequency.")
-    except Exception as e_freq:
-        st.warning(f"Frequency inference error: {e_freq}. Continuing.")
-    st.write("")
-
-    st.header("Uploaded Data Preview (Numeric, Non-Missing)")
-    st.dataframe(data.head())
-    st.caption(f"Original file shape: {data_initial.shape}, Processed shape: {data.shape}")
-
-
-    # --- Run Analysis Button ---
-    if st.button("Run Full Analysis"):
-        if use_manual_lag:
-            info_msg = (f"Running analysis: Manual Lag={manual_lag}, "
-                        f"Johansen Sig={johansen_sig*100}%, VECM Det={vecm_deterministic}, "
-                        f"IRF={'Yes (' + str(irf_periods) + ' steps)' if run_irf_analysis else 'No'}, "
-                        f"GARCH={garch_model_type_selection}(p={garch_p_order},q={garch_q_order}), Dist={garch_distribution}")
-        else:
-            info_msg = (f"Running analysis: Max Lags={max_lags_var}, Crit={lag_criterion.upper()}, "
-                        f"Johansen Sig={johansen_sig*100}%, VECM Det={vecm_deterministic}, "
-                        f"IRF={'Yes (' + str(irf_periods) + ' steps)' if run_irf_analysis else 'No'}, "
-                        f"GARCH={garch_model_type_selection}(p={garch_p_order},q={garch_q_order}), Dist={garch_distribution}")
-        st.info(info_msg)
-
-        # Initialize the result variable
-        adf_results_text_dict = {}
-        selected_lags = None; lag_summary = "Lag selection not performed."; used_criterion = lag_criterion
-        vecm_lag_order = None; r = 0; johansen_summary = "Johansen test not performed."; used_sig = johansen_sig
-        vecm_results_model = None; residuals = None; vecm_summary = "VECM not estimated."; used_det = vecm_deterministic
-        vecm_diagnostics_results = {}; vecm_diagnostics_log = ""
-        irf_results = None; irf_summary_text = "IRF not calculated."
-        irf_vals = None; irf_stderr = None
-        garch_diags_text = {}; garch_summaries = {}; garch_plots = {}; garch_log = ""
-        analysis_successful = True
-
+        # --- Frequency Inference ---
+        st.subheader("Data Frequency Check")
+        inferred_freq = None
         try:
+            if data.index.is_unique:
+                inferred_freq = pd.infer_freq(data.index)
+                if inferred_freq:
+                    st.success(f"Inferred frequency: **{inferred_freq}**")
+                    try:
+                        data = data.asfreq(inferred_freq)
+                        st.caption("Frequency set.")
+                    except ValueError as e_freq_set:
+                        st.warning(f"Could not set frequency '{inferred_freq}' (gaps/irregularities?). Continuing without enforcing frequency. Reason: {e_freq_set}")
+                else:
+                    st.warning("Could not infer regular frequency. Continuing.")
+            else:
+                st.warning("Duplicate dates found. Cannot infer frequency.")
+        except Exception as e_freq:
+            st.warning(f"Frequency inference error: {e_freq}. Continuing.")
+        st.write("")
+
+        st.header("Uploaded Data Preview (Numeric, Non-Missing)")
+        st.dataframe(data.head())
+        st.caption(f"Original file shape: {data_initial.shape}, Processed shape: {data.shape}")
+
+
+        # --- Run Analysis Button ---
+        if st.button("Run Full Analysis"):
+            if use_manual_lag:
+                info_msg = (f"Running analysis: Manual Lag={manual_lag}, "
+                            f"Johansen Sig={johansen_sig*100}%, VECM Det={vecm_deterministic}, "
+                            f"IRF={'Yes (' + str(irf_periods) + ' steps)' if run_irf_analysis else 'No'}, "
+                            f"GARCH={garch_model_type_selection}(p={garch_p_order},q={garch_q_order}), Dist={garch_distribution}")
+            else:
+                info_msg = (f"Running analysis: Max Lags={max_lags_var}, Crit={lag_criterion.upper()}, "
+                            f"Johansen Sig={johansen_sig*100}%, VECM Det={vecm_deterministic}, "
+                            f"IRF={'Yes (' + str(irf_periods) + ' steps)' if run_irf_analysis else 'No'}, "
+                            f"GARCH={garch_model_type_selection}(p={garch_p_order},q={garch_q_order}), Dist={garch_distribution}")
+            st.info(info_msg)
+
+            # Initialize the result variable
+            adf_results_text_dict = {}
+            selected_lags = None; lag_summary = "Lag selection not performed."; used_criterion = lag_criterion
+            vecm_lag_order = None; r = 0; johansen_summary = "Johansen test not performed."; used_sig = johansen_sig
+            vecm_results_model = None; residuals = None; vecm_summary = "VECM not estimated."; used_det = vecm_deterministic
+            vecm_diagnostics_results = {}; vecm_diagnostics_log = ""
+            irf_results = None; irf_summary_text = "IRF not calculated."
+            irf_vals = None; irf_stderr = None
+            garch_diags_text = {}; garch_summaries = {}; garch_plots = {}; garch_log = ""
+            analysis_successful = True
+
             with st.spinner ("Performing analysis... This may take a while."):
                 # --- 1. ADF Test ---
                 adf_all_stationary_diff = True
@@ -609,321 +604,313 @@ if uploaded_file is not None:
                 elif not garch_log:
                     garch_log = "Skipped GARCH modeling as no significant ARCH effects were found and residuals were available."
 
+            # --- Display Results ---
+            if analysis_successful:
+                tab_list = [
+                    "📊 Data & Stationarity", "📈 VECM Estimation",
+                    "📉 VECM Diagnostics", "⚡ Impulse Responses", "💹 GARCH Modeling",
+                    "💡 Interpretation Guide", "💾 Download Results"
+                ]
+                tabs = st.tabs(tab_list)
 
-        # --- Error Handling  ---
-        except Exception as analysis_error:
-             st.error(f"Error during main analysis workflow: {analysis_error}")
-             st.exception(analysis_error)
-             analysis_successful = False
-
-        # --- Display Results ---
-        if analysis_successful:
-            tab_list = [
-                "📊 Data & Stationarity", "📈 VECM Estimation",
-                "📉 VECM Diagnostics", "⚡ Impulse Responses", "💹 GARCH Modeling",
-                "💡 Interpretation Guide", "💾 Download Results"
-            ]
-            tabs = st.tabs(tab_list)
-
-            # --- Tab 1: Data & Stationarity ---
-            with tabs[0]:
-                st.header("1. Data Overview & Stationarity")
-                st.subheader("1.1 Data Info"); buffer = io.StringIO(); data.info(buf=buffer); st.text(buffer.getvalue())
-                st.subheader("1.2 Data Plot")
-                try:
-                     fig_data, ax_data = plt.subplots(figsize=(12, 5)); ax_data.plot(data.index, data); ax_data.set_title('Time Series Data (Processed)'); ax_data.legend(data.columns); st.pyplot(fig_data); plt.close(fig_data)
-                except Exception as e_plot: st.warning(f"Could not plot data: {e_plot}")
-                st.subheader("1.3 Stationarity Test (ADF)"); st.caption("_Sig. Level: 5%_")
-                if adf_results_text_dict:
-                    for var_name, results in adf_results_text_dict.items(): st.text_area(f"ADF Results: {var_name}", results, height=200, key=f"adf_{var_name}")
-                else: st.warning("ADF results not available.")
-
-            # ========================================================================
-            # --- Tab 2: VECM Estimation --
-            # ========================================================================
-            with tabs[1]:
-                st.header("2. VECM Estimation")
-                st.subheader(f"2.1 VAR Lag Order Selection");
-                if used_criterion.upper() == "MANUAL":
-                    st.markdown(f"**Selection Method:** `Manual`, **Selected Lag:** `{selected_lags}`");
-                else:
-                    st.markdown(f"**Crit:** `{used_criterion.upper()}`, **Max Lags:** `{max_lags_var}`");
-                st.text(f"Selected VAR lag (k_ar): {selected_lags if selected_lags is not None else 'N/A'}\nImplied VECM lag (p): {vecm_lag_order if vecm_lag_order is not None else 'N/A'}");
-                with st.expander("Show Lag Selection Summary"): st.text(lag_summary if lag_summary else "N/A")
-                st.divider()
-                st.subheader(f"2.2 Johansen Cointegration Test"); st.markdown(f"**Sig. Level:** `{used_sig*100}%`"); st.text(f"Determined Rank (r): {r}");
-                with st.expander("Show Johansen Test Output"): st.text(johansen_summary if johansen_summary else "N/A")
-                st.divider()
-                st.subheader(f"2.3 VECM Results"); st.markdown(f"**Det. Term:** `{used_det}`, **Rank (r):** `{r}`, **VECM Lag (p):** `{vecm_lag_order if vecm_lag_order is not None else 'N/A'}`");
-
-                if vecm_results_model is not None and r > 0:
-                    with st.expander("Show VECM Estimation Summary"):
-                        st.text(vecm_summary if vecm_summary else "Summary not available.")
-
-                    # --- VECM Coefficients Download Button ---
-                    st.markdown("**Download VECM Coefficients:**")
-                    col1, col2, col3 = st.columns(3)
-
-                    # Alpha (Adjustment)
+                # --- Tab 1: Data & Stationarity ---
+                with tabs[0]:
+                    st.header("1. Data Overview & Stationarity")
+                    st.subheader("1.1 Data Info"); buffer = io.StringIO(); data.info(buf=buffer); st.text(buffer.getvalue())
+                    st.subheader("1.2 Data Plot")
                     try:
-                        alpha_df = pd.DataFrame(vecm_results_model.alpha, index=data.columns, columns=[f'alpha_ect{i+1}' for i in range(r)])
-                        csv_alpha = df_to_csv_bytes(alpha_df, "vecm_alpha.csv")
-                        if csv_alpha:
-                            col1.download_button(label="📥 Alpha", data=csv_alpha, file_name="vecm_alpha.csv", mime="text/csv", key="dl_alpha")
-                    except Exception as e_alpha:
-                        col1.error(f"Error Alpha CSV: {e_alpha}")
+                         fig_data, ax_data = plt.subplots(figsize=(12, 5)); ax_data.plot(data.index, data); ax_data.set_title('Time Series Data (Processed)'); ax_data.legend(data.columns); st.pyplot(fig_data); plt.close(fig_data)
+                    except Exception as e_plot: st.warning(f"Could not plot data: {e_plot}")
+                    st.subheader("1.3 Stationarity Test (ADF)"); st.caption("_Sig. Level: 5%_")
+                    if adf_results_text_dict:
+                        for var_name, results in adf_results_text_dict.items(): st.text_area(f"ADF Results: {var_name}", results, height=200, key=f"adf_{var_name}")
+                    else: st.warning("ADF results not available.")
 
-                    # Beta (Cointegrating Vectors)
-                    try:
-                        beta_df = pd.DataFrame(vecm_results_model.beta, index=data.columns, columns=[f'beta_ect{i+1}' for i in range(r)])
-                        csv_beta = df_to_csv_bytes(beta_df, "vecm_beta.csv")
-                        if csv_beta:
-                            col2.download_button(label="📥 Beta", data=csv_beta, file_name="vecm_beta.csv", mime="text/csv", key="dl_beta")
-                    except Exception as e_beta:
-                        col2.error(f"Error Beta CSV: {e_beta}")
+                # ========================================================================
+                # --- Tab 2: VECM Estimation --
+                # ========================================================================
+                with tabs[1]:
+                    st.header("2. VECM Estimation")
+                    st.subheader(f"2.1 VAR Lag Order Selection");
+                    if used_criterion.upper() == "MANUAL":
+                        st.markdown(f"**Selection Method:** `Manual`, **Selected Lag:** `{selected_lags}`");
+                    else:
+                        st.markdown(f"**Crit:** `{used_criterion.upper()}`, **Max Lags:** `{max_lags_var}`");
+                    st.text(f"Selected VAR lag (k_ar): {selected_lags if selected_lags is not None else 'N/A'}\nImplied VECM lag (p): {vecm_lag_order if vecm_lag_order is not None else 'N/A'}");
+                    with st.expander("Show Lag Selection Summary"): st.text(lag_summary if lag_summary else "N/A")
+                    st.divider()
+                    st.subheader(f"2.2 Johansen Cointegration Test"); st.markdown(f"**Sig. Level:** `{used_sig*100}%`"); st.text(f"Determined Rank (r): {r}");
+                    with st.expander("Show Johansen Test Output"): st.text(johansen_summary if johansen_summary else "N/A")
+                    st.divider()
+                    st.subheader(f"2.3 VECM Results"); st.markdown(f"**Det. Term:** `{used_det}`, **Rank (r):** `{r}`, **VECM Lag (p):** `{vecm_lag_order if vecm_lag_order is not None else 'N/A'}`");
 
-                    # Gamma (Short-run)
-                    try:
+                    if vecm_results_model is not None and r > 0:
+                        with st.expander("Show VECM Estimation Summary"):
+                            st.text(vecm_summary if vecm_summary else "Summary not available.")
 
-                        gamma_cols = []
-                        for lag in range(1, vecm_lag_order + 1):
-                            for var in data.columns:
-                                gamma_cols.append(f'Gamma.L{lag}.{var}')
+                        # --- VECM Coefficients Download Button ---
+                        st.markdown("**Download VECM Coefficients:**")
+                        col1, col2, col3 = st.columns(3)
 
-                        expected_gamma_shape = (data.shape[1], data.shape[1] * vecm_lag_order)
-                        if hasattr(vecm_results_model, 'gamma') and vecm_results_model.gamma.shape == expected_gamma_shape:
-                            gamma_df = pd.DataFrame(vecm_results_model.gamma, index=data.columns, columns=gamma_cols[:expected_gamma_shape[1]])
-                            csv_gamma = df_to_csv_bytes(gamma_df, "vecm_gamma.csv")
-                            if csv_gamma:
-                                col3.download_button(label="📥 Gamma", data=csv_gamma, file_name="vecm_gamma.csv", mime="text/csv", key="dl_gamma")
-                        elif not hasattr(vecm_results_model, 'gamma'):
-                             col3.warning("Gamma coefficients not found in results.")
-                        else:
-                            col3.warning(f"Gamma shape mismatch ({vecm_results_model.gamma.shape} vs {expected_gamma_shape}). Cannot create CSV.")
-
-                    except Exception as e_gamma:
-                        col3.error(f"Error Gamma CSV: {e_gamma}")
-
-                elif r == 0:
-                    st.warning("VECM not estimated (r=0). No coefficients to download.")
-                    if vecm_summary != f"No cointegration (r=0) or Johansen failed. VECM not estimated.": st.text(f"Details: {vecm_summary}")
-                else:
-                    st.warning("VECM model not estimated. No coefficients to download.")
-                    st.text(f"Reason: {vecm_summary}")
-
-
-            # --- Tab 3: VECM Diagnostics ---
-            with tabs[2]:
-                st.header("3. VECM Residual Diagnostics")
-                if vecm_diagnostics_log: st.info(f"Diagnostics Log: {vecm_diagnostics_log}")
-                if isinstance(vecm_diagnostics_results, dict) and vecm_diagnostics_results:
-                     for var_name, results_text in vecm_diagnostics_results.items():
-                         st.subheader(f"Diagnostics for '{var_name}' Residuals"); st.text_area(f"VECM Diag Output {var_name}", results_text, height=350, key=f"vecm_diag_{var_name}"); st.divider()
-                elif not vecm_diagnostics_log: st.info("No VECM diagnostic results generated.")
-
-            # --- Tab 4: Impulse Responses ---
-            with tabs[3]:
-                st.header(f"4. Impulse Response Functions (IRF)")
-                if run_irf_analysis:
-                    st.markdown(f"Displaying IRFs for **{irf_periods}** periods ahead."); st.markdown("_Note: Non-orthogonalized IRFs. 95% CI shown (if available)._")
-                    if irf_results is not None:
+                        # Alpha (Adjustment)
                         try:
-                            fig_irf = irf_results.plot(orth=False, signif=0.05)
-                            st.pyplot(fig_irf)
-                            plt.close(fig_irf)
-                        except Exception as e_plot_irf: st.error(f"Error plotting IRF: {e_plot_irf}\n{traceback.format_exc()}")
-                    else: st.warning(f"Could not display IRF plots. Reason: {irf_summary_text}")
-                else: st.info("IRF analysis disabled.")
+                            alpha_df = pd.DataFrame(vecm_results_model.alpha, index=data.columns, columns=[f'alpha_ect{i+1}' for i in range(r)])
+                            csv_alpha = df_to_csv_bytes(alpha_df, "vecm_alpha.csv")
+                            if csv_alpha:
+                                col1.download_button(label="📥 Alpha", data=csv_alpha, file_name="vecm_alpha.csv", mime="text/csv", key="dl_alpha")
+                        except Exception as e_alpha:
+                            col1.error(f"Error Alpha CSV: {e_alpha}")
 
-            # --- Tab 5: GARCH Modeling ---
-            with tabs[4]:
-                st.header(f"5. GARCH Modeling ({garch_model_type_selection})")
-                st.markdown(f"**Model:** `{garch_model_type_selection}`, **Order:** `p={garch_p_order}, q={garch_q_order}`" + (", o=1" if garch_model_type_selection in ["EGARCH", "GJR-GARCH"] else ""))
-                st.markdown(f"**Distribution:** `{garch_distribution}`"); st.markdown("_Applied to VECM Residuals_")
-                if garch_log: st.info(garch_log); st.divider()
-                garch_was_run = bool(garch_summaries or garch_diags_text or ("Skipped GARCH" not in garch_log and "GARCH log is empty" not in garch_log))
-                if garch_was_run and residuals is not None and not residuals.empty:
-                    for col_name in data.columns:
-                        st.subheader(f"GARCH Analysis for '{col_name}' Residuals")
-                        plot_key_in = f'{col_name}_residuals_input'; plot_key_std = f'{col_name}_std_residuals'
-                        # Plot Input
-                        if plot_key_in in garch_plots and garch_plots[plot_key_in]:
-                            st.pyplot(garch_plots[plot_key_in])
-                            plt.close(garch_plots[plot_key_in])
-                        else: st.caption(f"_Input plot for {col_name} not available._")
-                        # Summary
-                        if col_name in garch_summaries:
-                             with st.expander(f"Show {garch_model_type_selection}(p={garch_p_order}, q={garch_q_order}) Summary ({col_name})"): st.text(garch_summaries[col_name])
-                        else: st.caption(f"_Summary for {col_name} not available._")
-                        # Diagnostics Text
-                        if col_name in garch_diags_text:
-                             st.text_area(f"GARCH Diagnostics ({col_name})", garch_diags_text[col_name], height=400, key=f"garch_diag_text_{col_name}")
-                        else: st.caption(f"_Diagnostics text for {col_name} not available._")
-                        # Diagnostics Plot
-                        if plot_key_std in garch_plots and garch_plots[plot_key_std]:
-                            st.pyplot(garch_plots[plot_key_std])
-                            plt.close(garch_plots[plot_key_std])
-                        else: st.caption(f"_Std. residuals plot for {col_name} not available._")
-                        st.divider()
-                elif not garch_was_run: st.info("GARCH modeling was skipped or not performed.")
-                else: st.warning("Cannot display GARCH results: VECM residuals were not available.")
+                        # Beta (Cointegrating Vectors)
+                        try:
+                            beta_df = pd.DataFrame(vecm_results_model.beta, index=data.columns, columns=[f'beta_ect{i+1}' for i in range(r)])
+                            csv_beta = df_to_csv_bytes(beta_df, "vecm_beta.csv")
+                            if csv_beta:
+                                col2.download_button(label="📥 Beta", data=csv_beta, file_name="vecm_beta.csv", mime="text/csv", key="dl_beta")
+                        except Exception as e_beta:
+                            col2.error(f"Error Beta CSV: {e_beta}")
 
-            # --- Tab 6: Interpretation Guide ---
-            with tabs[5]:
-                st.header("6. Quick Interpretation Guide")
+                        # Gamma (Short-run)
+                        try:
 
-                st.markdown("""
-                This guide provides practical instructions for interpreting the results of your VECM-GARCH analysis. Understanding these outputs correctly is crucial for drawing valid conclusions from your time series data.
-                """)
+                            gamma_cols = []
+                            for lag in range(1, vecm_lag_order + 1):
+                                for var in data.columns:
+                                    gamma_cols.append(f'Gamma.L{lag}.{var}')
 
-                st.subheader("VECM Results Interpretation")
-                st.markdown("""
-                ### Cointegrating Relationships (Beta Coefficients)
+                            expected_gamma_shape = (data.shape[1], data.shape[1] * vecm_lag_order)
+                            if hasattr(vecm_results_model, 'gamma') and vecm_results_model.gamma.shape == expected_gamma_shape:
+                                gamma_df = pd.DataFrame(vecm_results_model.gamma, index=data.columns, columns=gamma_cols[:expected_gamma_shape[1]])
+                                csv_gamma = df_to_csv_bytes(gamma_df, "vecm_gamma.csv")
+                                if csv_gamma:
+                                    col3.download_button(label="📥 Gamma", data=csv_gamma, file_name="vecm_gamma.csv", mime="text/csv", key="dl_gamma")
+                            elif not hasattr(vecm_results_model, 'gamma'):
+                                 col3.warning("Gamma coefficients not found in results.")
+                            else:
+                                col3.warning(f"Gamma shape mismatch ({vecm_results_model.gamma.shape} vs {expected_gamma_shape}). Cannot create CSV.")
 
-                **What to look for:**
-                - **Signs and magnitudes** of coefficients in the cointegrating vector (β)
-                - **Normalization** - one variable is typically normalized to 1.0
-                - **Statistical significance** of each coefficient
+                        except Exception as e_gamma:
+                            col3.error(f"Error Gamma CSV: {e_gamma}")
 
-                **How to interpret:**
-                - These represent the **long-run equilibrium relationship** between variables
-                - Example: If Y₁ is normalized to 1.0 and the coefficient for Y₂ is -0.5, then the long-run relationship is: Y₁ = 0.5Y₂ + ... (+ other variables and constant)
-                - The relationship can be read as: "In the long run, a 1-unit increase in Y₂ is associated with a 0.5-unit increase in Y₁"
-
-                ### Adjustment Coefficients (Alpha)
-
-                **What to look for:**
-                - **Signs and magnitudes** of adjustment coefficients (α)
-                - **Statistical significance** (P>|z|)
-
-                **How to interpret:**
-                - These show the **speed of adjustment** back to equilibrium after a deviation
-                - **Negative values** for the variable being normalized in β indicate proper error correction
-                - **Magnitude** indicates adjustment speed (e.g., -0.2 means 20% of disequilibrium is corrected each period)
-                - **Non-significant** coefficients suggest that variable may be weakly exogenous
-
-                ### Short-run Dynamics (Gamma)
-
-                **What to look for:**
-                - **Patterns** in the short-run coefficients across lags
-                - **Statistical significance** of coefficients
-
-                **How to interpret:**
-                - These capture **immediate responses** between variables
-                - Useful for understanding **short-term causality**
-                - Can reveal **feedback relationships** not visible in the long-run model
-                """)
-
-                st.subheader("Impulse Response Function (IRF) Interpretation")
-                st.markdown("""
-                IRFs show how variables respond over time to a shock in one variable.
-
-                **Key aspects to analyze:**
-
-                1. **Direction (sign):**
-                   - **Positive response**: The variable increases following the shock
-                   - **Negative response**: The variable decreases following the shock
-
-                2. **Magnitude:**
-                   - How large is the effect? Compare across different response variables
-
-                3. **Persistence:**
-                   - How long does the effect last?
-                   - Does it die out quickly or persist for many periods?
-                   - Does it return to zero (temporary effect) or stabilize at a new level (permanent effect)?
-
-                4. **Statistical significance:**
-                   - Check if confidence intervals include zero
-                   - Effects are significant when confidence intervals don't cross the zero line
-
-                5. **Pattern:**
-                   - Monotonic (consistently increasing/decreasing)
-                   - Oscillatory (alternating positive/negative)
-                   - Hump-shaped (initial increase then decrease)
-                """)
-
-                st.subheader("GARCH Model Interpretation")
-                st.markdown("""
-                ### Preliminary Check
-
-                **Always check diagnostics first!** A well-specified GARCH model should show:
-                - No significant autocorrelation in standardized residuals
-                - No remaining ARCH effects in squared standardized residuals
-                - Distribution of standardized residuals consistent with the assumed distribution
-
-                ### Standard GARCH Parameters
-
-                **Constant term (omega):**
-                - Represents the **long-run average variance** when divided by (1 - sum of alpha - sum of beta)
-                - Usually small in magnitude
-
-                **ARCH terms (alpha):**
-                - Measure the **reaction of conditional volatility to market shocks**
-                - Higher values indicate stronger reaction to recent shocks
-                - Range: Typically 0.05 to 0.2 for financial data
-
-                **GARCH terms (beta):**
-                - Measure the **persistence of volatility**
-                - Higher values indicate longer-lasting effects of shocks
-                - Range: Typically 0.7 to 0.9 for financial data
-
-                **Volatility persistence:**
-                - Sum of alpha + beta coefficients
-                - Values close to 1 indicate high persistence
-                - Values > 1 suggest non-stationarity in variance
-
-                ### Asymmetric GARCH Models
-
-                **EGARCH specific parameters:**
-                - **alpha**: Size effect (magnitude of shocks)
-                - **gamma**: Sign effect (asymmetry/leverage)
-                  - Positive gamma: Negative shocks increase volatility more than positive shocks
-                  - Negative gamma: Positive shocks increase volatility more than negative shocks
-
-                **GJR-GARCH specific parameters:**
-                - **gamma**: Direct measure of asymmetry
-                  - Positive and significant gamma indicates leverage effect
-                  - Interpretation: Negative shocks of the same magnitude as positive shocks have a larger impact of (alpha + gamma) on volatility
-
-                ### Distribution Parameters
-
-                - **Student's t (nu)**: Degrees of freedom parameter; smaller values indicate heavier tails
-                - **Skewed-t (lambda)**: Skewness parameter; negative values indicate negative skew
-                """)
-
-                st.subheader("Integrated Analysis Approach")
-                st.markdown("""
-                For comprehensive understanding of your time series system:
-
-                1. **First analyze VECM results** to understand:
-                   - Long-run equilibrium relationships between variables
-                   - Speed of adjustment to equilibrium
-                   - Short-run dynamic interactions
-
-                2. **Use IRF analysis** to visualize:
-                   - How shocks propagate through the system
-                   - Which variables have the strongest influence on others
-                   - How long effects persist after shocks
-
-                3. **Examine GARCH results** to understand:
-                   - Volatility patterns in the unexplained components (residuals)
-                   - Whether volatility shows clustering behavior
-                   - If negative shocks have different impacts than positive ones
-                   - How quickly volatility reverts to its long-run average
-
-                This multi-faceted approach provides insights into both the conditional mean dynamics (VECM) and conditional variance dynamics (GARCH) of your multivariate time series system.
-                """)
-
-            # ========================================================================
-            # --- Tab 7: Download Results --
-            # ========================================================================
-
-            with tabs[6]:
-                st.header("7. Download Analysis Results")
+                    elif r == 0:
+                        st.warning("VECM not estimated (r=0). No coefficients to download.")
+                        if vecm_summary != f"No cointegration (r=0) or Johansen failed. VECM not estimated.": st.text(f"Details: {vecm_summary}")
+                    else:
+                        st.warning("VECM model not estimated. No coefficients to download.")
+                        st.text(f"Reason: {vecm_summary}")
 
 
-                zip_buffer = io.BytesIO()
-                try:
+                # --- Tab 3: VECM Diagnostics ---
+                with tabs[2]:
+                    st.header("3. VECM Residual Diagnostics")
+                    if vecm_diagnostics_log: st.info(f"Diagnostics Log: {vecm_diagnostics_log}")
+                    if isinstance(vecm_diagnostics_results, dict) and vecm_diagnostics_results:
+                         for var_name, results_text in vecm_diagnostics_results.items():
+                             st.subheader(f"Diagnostics for '{var_name}' Residuals"); st.text_area(f"VECM Diag Output {var_name}", results_text, height=350, key=f"vecm_diag_{var_name}"); st.divider()
+                    elif not vecm_diagnostics_log: st.info("No VECM diagnostic results generated.")
+
+                # --- Tab 4: Impulse Responses ---
+                with tabs[3]:
+                    st.header(f"4. Impulse Response Functions (IRF)")
+                    if run_irf_analysis:
+                        st.markdown(f"Displaying IRFs for **{irf_periods}** periods ahead."); st.markdown("_Note: Non-orthogonalized IRFs. 95% CI shown (if available)._")
+                        if irf_results is not None:
+                            try:
+                                fig_irf = irf_results.plot(orth=False, signif=0.05)
+                                st.pyplot(fig_irf)
+                                plt.close(fig_irf)
+                            except Exception as e_plot_irf: st.error(f"Error plotting IRF: {e_plot_irf}\n{traceback.format_exc()}")
+                        else: st.warning(f"Could not display IRF plots. Reason: {irf_summary_text}")
+                    else: st.info("IRF analysis disabled.")
+
+                # --- Tab 5: GARCH Modeling ---
+                with tabs[4]:
+                    st.header(f"5. GARCH Modeling ({garch_model_type_selection})")
+                    st.markdown(f"**Model:** `{garch_model_type_selection}`, **Order:** `p={garch_p_order}, q={garch_q_order}`" + (", o=1" if garch_model_type_selection in ["EGARCH", "GJR-GARCH"] else ""))
+                    st.markdown(f"**Distribution:** `{garch_distribution}`"); st.markdown("_Applied to VECM Residuals_")
+                    if garch_log: st.info(garch_log); st.divider()
+                    garch_was_run = bool(garch_summaries or garch_diags_text or ("Skipped GARCH" not in garch_log and "GARCH log is empty" not in garch_log))
+                    if garch_was_run and residuals is not None and not residuals.empty:
+                        for col_name in data.columns:
+                            st.subheader(f"GARCH Analysis for '{col_name}' Residuals")
+                            plot_key_in = f'{col_name}_residuals_input'; plot_key_std = f'{col_name}_std_residuals'
+                            # Plot Input
+                            if plot_key_in in garch_plots and garch_plots[plot_key_in]:
+                                st.pyplot(garch_plots[plot_key_in])
+                                plt.close(garch_plots[plot_key_in])
+                            else: st.caption(f"_Input plot for {col_name} not available._")
+                            # Summary
+                            if col_name in garch_summaries:
+                                 with st.expander(f"Show {garch_model_type_selection}(p={garch_p_order}, q={garch_q_order}) Summary ({col_name})"): st.text(garch_summaries[col_name])
+                            else: st.caption(f"_Summary for {col_name} not available._")
+                            # Diagnostics Text
+                            if col_name in garch_diags_text:
+                                 st.text_area(f"GARCH Diagnostics ({col_name})", garch_diags_text[col_name], height=400, key=f"garch_diag_text_{col_name}")
+                            else: st.caption(f"_Diagnostics text for {col_name} not available._")
+                            # Diagnostics Plot
+                            if plot_key_std in garch_plots and garch_plots[plot_key_std]:
+                                st.pyplot(garch_plots[plot_key_std])
+                                plt.close(garch_plots[plot_key_std])
+                            else: st.caption(f"_Std. residuals plot for {col_name} not available._")
+                            st.divider()
+                    elif not garch_was_run: st.info("GARCH modeling was skipped or not performed.")
+                    else: st.warning("Cannot display GARCH results: VECM residuals were not available.")
+
+                # --- Tab 6: Interpretation Guide ---
+                with tabs[5]:
+                    st.header("6. Quick Interpretation Guide")
+
+                    st.markdown("""
+                    This guide provides practical instructions for interpreting the results of your VECM-GARCH analysis. Understanding these outputs correctly is crucial for drawing valid conclusions from your time series data.
+                    """)
+
+                    st.subheader("VECM Results Interpretation")
+                    st.markdown("""
+                    ### Cointegrating Relationships (Beta Coefficients)
+
+                    **What to look for:**
+                    - **Signs and magnitudes** of coefficients in the cointegrating vector (β)
+                    - **Normalization** - one variable is typically normalized to 1.0
+                    - **Statistical significance** of each coefficient
+
+                    **How to interpret:**
+                    - These represent the **long-run equilibrium relationship** between variables
+                    - Example: If Y₁ is normalized to 1.0 and the coefficient for Y₂ is -0.5, then the long-run relationship is: Y₁ = 0.5Y₂ + ... (+ other variables and constant)
+                    - The relationship can be read as: "In the long run, a 1-unit increase in Y₂ is associated with a 0.5-unit increase in Y₁"
+
+                    ### Adjustment Coefficients (Alpha)
+
+                    **What to look for:**
+                    - **Signs and magnitudes** of adjustment coefficients (α)
+                    - **Statistical significance** (P>|z|)
+
+                    **How to interpret:**
+                    - These show the **speed of adjustment** back to equilibrium after a deviation
+                    - **Negative values** for the variable being normalized in β indicate proper error correction
+                    - **Magnitude** indicates adjustment speed (e.g., -0.2 means 20% of disequilibrium is corrected each period)
+                    - **Non-significant** coefficients suggest that variable may be weakly exogenous
+
+                    ### Short-run Dynamics (Gamma)
+
+                    **What to look for:**
+                    - **Patterns** in the short-run coefficients across lags
+                    - **Statistical significance** of coefficients
+
+                    **How to interpret:**
+                    - These capture **immediate responses** between variables
+                    - Useful for understanding **short-term causality**
+                    - Can reveal **feedback relationships** not visible in the long-run model
+                    """)
+
+                    st.subheader("Impulse Response Function (IRF) Interpretation")
+                    st.markdown("""
+                    IRFs show how variables respond over time to a shock in one variable.
+
+                    **Key aspects to analyze:**
+
+                    1. **Direction (sign):**
+                       - **Positive response**: The variable increases following the shock
+                       - **Negative response**: The variable decreases following the shock
+
+                    2. **Magnitude:**
+                       - How large is the effect? Compare across different response variables
+
+                    3. **Persistence:**
+                       - How long does the effect last?
+                       - Does it die out quickly or persist for many periods?
+                       - Does it return to zero (temporary effect) or stabilize at a new level (permanent effect)?
+
+                    4. **Statistical significance:**
+                       - Check if confidence intervals include zero
+                       - Effects are significant when confidence intervals don't cross the zero line
+
+                    5. **Pattern:**
+                       - Monotonic (consistently increasing/decreasing)
+                       - Oscillatory (alternating positive/negative)
+                       - Hump-shaped (initial increase then decrease)
+                    """)
+
+                    st.subheader("GARCH Model Interpretation")
+                    st.markdown("""
+                    ### Preliminary Check
+
+                    **Always check diagnostics first!** A well-specified GARCH model should show:
+                    - No significant autocorrelation in standardized residuals
+                    - No remaining ARCH effects in squared standardized residuals
+                    - Distribution of standardized residuals consistent with the assumed distribution
+
+                    ### Standard GARCH Parameters
+
+                    **Constant term (omega):**
+                    - Represents the **long-run average variance** when divided by (1 - sum of alpha - sum of beta)
+                    - Usually small in magnitude
+
+                    **ARCH terms (alpha):**
+                    - Measure the **reaction of conditional volatility to market shocks**
+                    - Higher values indicate stronger reaction to recent shocks
+                    - Range: Typically 0.05 to 0.2 for financial data
+
+                    **GARCH terms (beta):**
+                    - Measure the **persistence of volatility**
+                    - Higher values indicate longer-lasting effects of shocks
+                    - Range: Typically 0.7 to 0.9 for financial data
+
+                    **Volatility persistence:**
+                    - Sum of alpha + beta coefficients
+                    - Values close to 1 indicate high persistence
+                    - Values > 1 suggest non-stationarity in variance
+
+                    ### Asymmetric GARCH Models
+
+                    **EGARCH specific parameters:**
+                    - **alpha**: Size effect (magnitude of shocks)
+                    - **gamma**: Sign effect (asymmetry/leverage)
+                      - Positive gamma: Negative shocks increase volatility more than positive shocks
+                      - Negative gamma: Positive shocks increase volatility more than negative shocks
+
+                    **GJR-GARCH specific parameters:**
+                    - **gamma**: Direct measure of asymmetry
+                      - Positive and significant gamma indicates leverage effect
+                      - Interpretation: Negative shocks of the same magnitude as positive shocks have a larger impact of (alpha + gamma) on volatility
+
+                    ### Distribution Parameters
+
+                    - **Student's t (nu)**: Degrees of freedom parameter; smaller values indicate heavier tails
+                    - **Skewed-t (lambda)**: Skewness parameter; negative values indicate negative skew
+                    """)
+
+                    st.subheader("Integrated Analysis Approach")
+                    st.markdown("""
+                    For comprehensive understanding of your time series system:
+
+                    1. **First analyze VECM results** to understand:
+                       - Long-run equilibrium relationships between variables
+                       - Speed of adjustment to equilibrium
+                       - Short-run dynamic interactions
+
+                    2. **Use IRF analysis** to visualize:
+                       - How shocks propagate through the system
+                       - Which variables have the strongest influence on others
+                       - How long effects persist after shocks
+
+                    3. **Examine GARCH results** to understand:
+                       - Volatility patterns in the unexplained components (residuals)
+                       - Whether volatility shows clustering behavior
+                       - If negative shocks have different impacts than positive ones
+                       - How quickly volatility reverts to its long-run average
+
+                    This multi-faceted approach provides insights into both the conditional mean dynamics (VECM) and conditional variance dynamics (GARCH) of your multivariate time series system.
+                    """)
+
+                # ========================================================================
+                # --- Tab 7: Download Results --
+                # ========================================================================
+
+                with tabs[6]:
+                    st.header("7. Download Analysis Results")
+
+
+                    zip_buffer = io.BytesIO()
                     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
                         file_counter = 0
 
@@ -1075,15 +1062,13 @@ if uploaded_file is not None:
                 except Exception as zip_error:
                      st.error(f"An error occurred during ZIP file creation: {zip_error}"); st.exception(zip_error)
 
-
-
-        # --- last message ---
-        st.write("--- End of Analysis ---")
-
-
-    # --- Error Handling  ---
+            # --- last message ---
+            st.write("--- End of Analysis ---")
+    
+    # This is the corrected 'except' block that catches any error from the main 'try' block
     except Exception as e:
-        st.error(f"An unexpected error occurred in the application: {e}"); st.exception(e)
+        st.error(f"An unexpected error occurred in the application: {e}")
+        st.exception(e)
 
 # --- Early message ---
 else:
