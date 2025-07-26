@@ -1056,19 +1056,24 @@ if uploaded_file is not None:
 
                         # --- END OF ZIP BLOCK ---
 
-                    zip_buffer.seek(0)
-                    st.download_button(label="📥 Download All Results (.zip)", data=zip_buffer, file_name="analysis_results.zip", mime="application/zip", key="download_all_results")
+                     zip_buffer.seek(0)
+                        st.download_button(label="📥 Download All Results (.zip)", data=zip_buffer, file_name="analysis_results.zip", mime="application/zip", key="download_all_results")
 
-                except Exception as zip_error:
-                     st.error(f"An error occurred during ZIP file creation: {zip_error}"); st.exception(zip_error)
+                    except Exception as zip_error:
+                         st.error(f"An error occurred during ZIP file creation: {zip_error}"); st.exception(zip_error)
+
+
 
             # --- last message ---
-            st.write("--- End of Analysis ---")
-    
-    # This is the corrected 'except' block that catches any error from the main 'try' block
+
+            st.write(f"Analysis Successful Flag: {analysis_successful}")
+            st.write(f"VECM Model Object: {'Exists' if vecm_results_model else 'None'}")
+            st.write(f"VECM Residuals Object: {'Exists' if residuals is not None else 'None'}, Shape: {residuals.shape if residuals is not None else 'N/A'}")
+
+
+    # --- Error Handling  ---
     except Exception as e:
-        st.error(f"An unexpected error occurred in the application: {e}")
-        st.exception(e)
+        st.error(f"An unexpected error occurred in the application: {e}"); st.exception(e)
 
 # --- Early message ---
 else:
@@ -1091,7 +1096,7 @@ else:
 
                        **GARCH models** capture time-varying volatility (conditional heteroskedasticity) in time series data, particularly the tendency of volatility to cluster and persist over time. These models are essential for financial time series where volatility is not constant.
 
-                       The combined VECM-GARCH approach allows for modeling both the conditional mean (through VECM) and conditional variance (through GARCH) of a multivariate time series system.
+                       The combined VECM-GARCH approach allows for modeling both the conditional mean (through VECM) and conditional variance (through GARCH) of multivariate time series.
                        """)
 
     st.subheader("Workflow")
@@ -1231,7 +1236,7 @@ else:
     st.markdown("""
                        The application provides extensive analytical flexibility through user-selectable parameters in the sidebar:
 
-                       - **VAR/VECM Parameters**:
+                       - **VAR/VECM Parameters**: 
                          - Lag Selection: Automatic (using information criteria) or Manual (user-specified)
                          - Lag Criterion (when using automatic selection): AIC, BIC, HQIC, FPE
                          - Maximum Lags (when using automatic selection) or Manual Lag Value
