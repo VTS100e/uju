@@ -458,21 +458,21 @@ if uploaded_file is not None:
              uploaded_file.seek(0); st.text("First few lines of the file:"); st.text(uploaded_file.read(500).decode(errors='ignore')); st.stop()
 
     data = data_initial.sort_index()
-    numeric_cols = data.select_dtypes(include=np.number).columns
-    if len(numeric_cols) < data.shape[1]:
-        non_numeric_cols = data.select_dtypes(exclude=np.number).columns
-        st.warning(f"Ignored non-numeric columns: {list(non_numeric_cols)}. Analysis proceeds with numeric columns.")
-        data = data[numeric_cols]
-    if data.empty: st.error("No numeric data found or remaining after selection."); st.stop()
+        numeric_cols = data.select_dtypes(include=np.number).columns
+        if len(numeric_cols) < data.shape[1]:
+            non_numeric_cols = data.select_dtypes(exclude=np.number).columns
+            st.warning(f"Ignored non-numeric columns: {list(non_numeric_cols)}. Analysis proceeds with numeric columns.")
+            data = data[numeric_cols]
+        if data.empty: st.error("No numeric data found or remaining after selection."); st.stop()
 
-    data_original_shape = data.shape
-    data = data.dropna()
-    if data.empty:
-        st.error(f"Data is empty after dropping rows with missing values (NaN). Original numeric shape was {data_original_shape}. Check data for NaNs.")
-        st.stop()
-    if data.shape[1] < 2:
-        st.error(f"VECM requires at least two numeric variables without missing values. Found {data.shape[1]}: {list(data.columns)}")
-        st.stop()
+        data_original_shape = data.shape
+        data = data.dropna()
+        if data.empty:
+            st.error(f"Data is empty after dropping rows with missing values (NaN). Original numeric shape was {data_original_shape}. Check data for NaNs.")
+            st.stop()
+        if data.shape[1] < 2:
+            st.error(f"VECM requires at least two numeric variables without missing values. Found {data.shape[1]}: {list(data.columns)}")
+            st.stop()
 
         # --- Frequency Inference ---
         st.subheader("Data Frequency Check")
