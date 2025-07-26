@@ -424,38 +424,53 @@ if uploaded_file is not None:
     # This is the main try-except block for the whole application workflow
     try:
         data_initial = None
-        # --- Data Loading and Preprocessing ---
-        st.caption("Attempting to load and parse CSV...")
-        # We need to reset the file pointer before each read attempt
+        # --- NEW, MORE ROBUST DATA LOADING LOGIC ---
+        st.caption("Loading data...")
         uploaded_file.seek(0)
-
+        
+        # Step 1: Read the CSV as a plain DataFrame first.
+        # This helps isolate file reading errors from date parsing errors.
         try:
-            # --- Primary Method ---
-            # Attempt 1: Standard parsing (for YYYY-MM-DD like in sk.csv)
-            data_initial = pd.read_csv(uploaded_file, index_col=0, parse_dates=True)
-            st.caption("Success with standard date format.")
+            df_temp = pd.read_csv(uploaded_file, sep=None, engine='python')
+            if 'Date' not in df_temp.columns:
+                 # Try again with semicolon if 'Date' is not in columns
+                 uploaded_file.seek(0)
+                 df_temp = pd.read_csv(uploaded_file, sep=';', engine='python')
+                 if 'Date' not in df_temp.columns:
+                     raise ValueError("A 'Date' column was not found in the CSV file with comma or semicolon separator.")
+            
+            df_temp.set_index('Date', inplace=True)
 
-        except (ValueError, pd.errors.ParserError):
-            # --- Fallback Method ---
-            # Attempt 2: Day-first parsing (for DD/MM/YYYY like in nn.csv)
-            st.caption("Standard date parsing failed. Attempting with 'dayfirst=True'...")
-            uploaded_file.seek(0) # Reset pointer again for the next try
+        except Exception as e:
+            st.error(f"Could not read the basic structure of the CSV file. Please ensure it is a valid CSV. Error: {e}")
+            st.stop()
+        
+        # Step 2: Now, try to convert the text index into proper dates using multiple strategies.
+        try:
+            # Strategy 1: Standard date conversion (for YYYY-MM-DD, etc.)
+            st.caption("Attempting to parse dates (standard format)...")
+            df_temp.index = pd.to_datetime(df_temp.index)
+            data_initial = df_temp
+            st.caption("Date parsing successful (standard).")
+        except (ValueError, TypeError):
+            # Strategy 2: Day-first date conversion (for DD/MM/YYYY)
+            st.caption("Standard date parsing failed. Trying day-first format...")
             try:
-                data_initial = pd.read_csv(uploaded_file, index_col=0, parse_dates=True, dayfirst=True)
-                st.caption("Success with day-first date format.")
-            except Exception as e_inner:
-                # If both methods fail, show a specific error and stop.
-                st.error(f"Failed to read CSV with both standard and day-first date formats. Please check your date column. Error: {e_inner}")
+                df_temp.index = pd.to_datetime(df_temp.index, dayfirst=True)
+                data_initial = df_temp
+                st.caption("Date parsing successful (day-first).")
+            except (ValueError, TypeError) as e:
+                st.error(f"Could not convert the 'Date' column to dates using any method. Please check the date format in your file. Error: {e}")
                 st.stop()
         
         # --- Continue with processing after successful data load ---
         if data_initial is None:
-            st.error("Could not load data. Please check the file format and content.")
+            st.error("Data loaded but could not be parsed into a final DataFrame.")
             st.stop()
 
         if not isinstance(data_initial.index, pd.DatetimeIndex):
-             st.error("Could not parse the first column as Dates. Ensure the first column contains valid dates and is set as index.")
-             uploaded_file.seek(0); st.text("First few lines of the file:"); st.text(uploaded_file.read(500).decode(errors='ignore')); st.stop()
+             st.error("The 'Date' column was loaded but could not be converted to a DatetimeIndex.")
+             st.stop()
 
         data = data_initial.sort_index()
         numeric_cols = data.select_dtypes(include=np.number).columns
